@@ -5,21 +5,20 @@ import requests
 # this module is used to choose a random colour for the user interface and
 #  make random choices about moves the computer should make
 import random
+# this module is used to interact with your machine learning project
+from mlforkidsnumbers import MLforKidsNumbers
 
 
-
-# API KEY  - the unique private code for your Machine Learning project
-global KEY
-KEY = "put-your-project-API-key-here"
+project = MLforKidsNumbers(
+    # keys and URLs specific to your project will be added here
+)
 
 
 
 
 ############################################################################
-# Constants that match names you have used in your Machine Learning project
+# Constants that match names in your Machine Learning project
 ############################################################################
-# You shouldn't need to change these, but if you spelled values differently
-# in your project, then you can update these to match here.
 
 # descriptions of the contents of a space on the game board
 EMPTY = "EMPTY"
@@ -94,41 +93,43 @@ decisions = {
 def classify(board):
     debug("Predicting the next best move for the computer")
 
-    # where should the request be sent?
-    url = "https://machinelearningforkids.co.uk/api/scratch/"+ KEY + "/classify"
-
-    # send the state of the game board to your machine learning model
-    response = requests.get(url, params={
-        "data" : get_board_from_perspective(board, COMPUTER)
-    })
-
-    if response.ok:
-        responseData = response.json()
+    if project.has_model():
+        # get the current state of the game board
+        state = get_board_from_perspective(board, COMPUTER)
+        testvalue = {
+            "TopLeft" : state[0],
+            "TopMiddle" : state[1],
+            "TopRight" : state[2],
+            "MiddleLeft" : state[3],
+            "MiddleMiddle" : state[4],
+            "MiddleRight" : state[5],
+            "BottomLeft" : state[6],
+            "BottomMiddle" : state[7],
+            "BottomRight" : state[8]
+        }
+        # send the state of the game board to your machine learning model
+        predictions = project.classify(testvalue)
 
         # responseData will contain the list of predictions made by the
         #  machine learning model, starting from the one with the most
         #  confidence, to the one with the least confidence
-        for prediction in responseData:
+        for prediction in predictions:
             # we can't make a move unless the space is empty, so
             #  check that first
             if is_space_empty(board, prediction["class_name"]):
                 return prediction
 
-        # If we're here, it means that none of the predictions made by
-        #  the machine learning model were actually empty!
-        # (This should never happen, but to be safe...)
+    # If we're here, it means that we don't have a machine learning model,
+    #  or possibly none of the predictions made by the model were
+    #  actually empty!
 
-        # Pick a random space to move in
-        for space in random.sample(deconvert.keys(), len(deconvert)):
-            # we can't make a move unless the space is empty, so
-            #  check that first
-            if is_space_empty(board, space):
-                return { "class_name" : space }
-    else:
-        # something went wrong - there was an error when trying to
-        #  use your ML model
-        print(response.json())
-        response.raise_for_status()
+    # Pick a random space to move in
+    spaces = list(deconvert.keys())
+    for space in random.sample(spaces, len(spaces)):
+        # we can't make a move unless the space is empty, so
+        #  check that first
+        if is_space_empty(board, space):
+            return { "class_name" : space }
 
 
 
@@ -144,42 +145,18 @@ def classify(board):
 def add_to_train(board, who, name_of_space):
     print ("Adding the move in %s by %s to the training data" % (name_of_space, who))
 
-    url = "https://machinelearningforkids.co.uk/api/scratch/"+ KEY + "/train"
+    # convert the contents of the board into a list of whose symbol
+    #   is in that space, from the perspective of 'who'
+    #  e.g. [ PLAYER, OPPONENT, PLAYER, EMPTY, EMPTY, PLAYER, OPPONENT, PLAYER, OPPONENT ]
+    data = get_board_from_perspective(board, who)
 
-    response = requests.post(url, json={
-        # convert the contents of the board into a list of whose symbol
-        #   is in that space, from the perspective of 'who'
-        #  e.g. [ PLAYER, OPPONENT, PLAYER, EMPTY, EMPTY, PLAYER, OPPONENT, PLAYER, OPPONENT ]
-        "data" : get_board_from_perspective(board, who),
-        # the location that they chose to make a move in
-        "label" : name_of_space
-    })
+    # the location that they chose to make a move in
+    label = name_of_space
 
-    if response.ok:
-        # training data stored okay
-        pass
-    else:
-        # something went wrong
-        print(response.json())
-        response.raise_for_status()
+    # add move to the machine learning project training data
+    project.store(data, label)
 
 
-
-# Train a new machine learning model using the training data
-# that has been collected so far
-def train_new_model():
-    print ("Training a new machine learning model")
-
-    url = "https://machinelearningforkids.co.uk/api/scratch/"+ KEY + "/models"
-    response = requests.post(url)
-
-    if response.ok:
-        # machine learning model trained successfully
-        pass
-    else:
-        # something went wrong
-        print(response.json())
-        response.raise_for_status()
 
 
 
@@ -198,17 +175,12 @@ def learn_from_this(winner, boardhistory, winnerdecisions):
         print("And %s decided to put their mark in %s" % (winner, winnerdecisions[idx]))
 
 
-
-
 ############################################################################
 # Noughts and Crosses logic
 ############################################################################
 
 # get the location of a space on the board (an index from 0 to 8)
-#
-# This uses the lookup table 'deconvert' and copes with
-#  student projects that have different spellings for
-#  the spaces on the board.
+#  using the lookup table 'deconvert'
 #
 #  name_of_space :  name of the space to check
 #            e.g.    middle_right
